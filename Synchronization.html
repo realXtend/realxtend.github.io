@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Synchronization real-time API</title>
+    <meta charset='utf-8'>
+    <script src='https://www.w3.org/Tools/respec/respec-w3c-common'
+            async class='remove'></script>
+    <script class='remove'>
+      var respecConfig = {
+          specStatus: "unofficial",
+          publishDate:  "2015-09-02",
+          shortName:  "synchronization",
+          editors: [
+                {   name:       "Lasse &Ouml;&ouml;rni",
+                    company:    "LudoCraft",
+                    companyURL: "http://www.ludocraft.com/" }
+          ]
+      };
+    </script>
+  </head>
+  <body>
+    <section id='abstract'>
+      <p>
+        This document describes the Synchronization GE real-time sync protocol API
+      </p>
+    </section>
+
+    <section>
+      <h2>Introduction</h2>
+      <p>
+        To maintain low coupling and eg. allow the scene model to be reused without networking, the JavaScript client API is divided into classes with different responsibilities:
+      </p>
+      <ul>
+        <li><b>WebSocketClient</b>: WebSocket connection management
+        <li><b>Scene</b>, <b>Entity</b>, <b>Component</b> and <b>Attribute</b>: scene model implementation
+        <li><b>SyncManager</b>: bidirectional synchronization of the scene with the server
+      </ul>
+    </section>
+    <section>
+      <h2>Connection management</h2>
+      <p>
+        Initiating a WebSocket connection to a server happens through the WebSocketClient object, which exposes the following functions:
+      </p>
+      <pre>
+        webSocketClient.connect(hostname, port, loginData)
+        webSocketClient.disconnect()
+      </pre>
+      <p>
+        The loginData is optional JSON data that specifies user name, authentication information etc.
+      </p>
+      <p>
+        The WebSocketClient provides signals for the connect succeeding or failing, and provides access to sending and receiving raw binary messages which is utilized by the SyncManager. After a successful connection to the server the client is assigned and sent back an integer user ID and a reply data which is also JSON, and these can be read via the WebSocketClient's "userID" and "loginReplyData" properties.
+      </p>
+    </section>
+    <section>
+      <h2>Scene model</h2>
+      <p>
+        The Scene, Entity, Component and Attribute classes implement access to the Entity-Component-Attribute -based scene and are what the SyncManager manipulates to replicate scene modifications coming from the server.
+      </p>
+      <p>
+        These classes provide also signals for scene modification operations that happen on them (such as "entityCreated", "entityRemoved") and the SyncManager hooks into these to be able to send the client's scene modifications to the server.
+      </p>
+      <p>
+        All scene modification operations (creation, modification and removal of entities, components and attributes) are accompanied by a "change type" or signaling mode. It is possible to make changes to the scene
+without sending them to the network, or even without signaling them internally at all. The default change mode should be used in most cases, and is also used if the change type parameter is omitted.
+      </p>
+      <ul>
+        <li><b>Default</b>: Use the default signaling mode which makes most sense, which is Replicated for replicated entities/components, or LocalOnly for local entities / components</li>
+        <li><b>Replicate</b>: If the entity or component in question is replicated, send the change as a network message</li>
+        <li><b>LocalOnly</b>: Signal the change locally, but do not send a network message</li>
+        <li><b>Disconnected</b>: Do not signal locally and do not send a network message</li>
+      </ul>
+      <p>
+        The entities in the scene and the components in an entity are primarily identified with their integer ID's. The ID's are split into different ranges based on their purpose:
+      </p>
+      <ul>
+        <li><b>0x00000001 - 0x3fffffff</b> Replicated entities / components. These are synchronized between the server and the client</li>
+        <li><b>0x40000001 - 0x7fffffff</b> Unacked entities / components. When a client creates an entity or component that should appear on the server, it allocates an "unacked" ID for it. This will be transformed by the server to an authoritatively allocated replicated ID. A reply message is sent to the client so that it knows also to change the ID of the entity or component it created.</li>
+        <li><b>0x80000001<br>0xffffffff</b> Local entities / components. These are created on the client only (or the server only) and willnot be synchronized</li>
+      </ul>
+      <p>
+        Next follows a brief description of the most important functions in the Scene, Entity and Component classes needed by the network synchronization.
+      </p>
+      <section>
+        <h3>Scene</h3>
+        <pre>
+          scene.createEntity(id, changeType)
+        </pre>
+        <p>
+          Create an empty entity into the scene. ID 0 will assign the next available. The change type decides whether to create a replicated (Replicate) or local (LocalOnly) entity.
+        </p>
+        <pre>
+          scene.removeEntity(id, changeType)
+        </pre>
+        <p>
+          Remove an entity by ID.
+        </p>
+        <pre>
+          scene.entityById(id)
+        </pre>
+        <p>
+          Return an entity by ID, or no entity if not found.
+        </p>
+        <pre>
+          scene.entityByName(name)
+        </pre>
+        <p>
+          Return an entity by string name. The name is contained in its Name component.
+        </p>
+      </section>
+      <section>
+        <h3>Entity</h3>
+        <pre>
+          entity.createComponent(id, typeId, name, changeType)
+        </pre>
+        <p>
+          Create a component to the entity. ID 0 will assign the next available. The typeId can be a string (such as "Mesh" or "Placeable") or an integer type value that is used internally in the network protocol for optimization. Components can be optionally given a string name.
+        </p>
+        <pre>
+          entity.removeComponent(id, changeType)
+        </pre>
+        <p>
+          Remove a component from the entity by ID.
+        </p>
+        <pre>
+          entity.removeAllComponents(changeType)
+        </pre>
+        <p>
+          Remove all components from the entity.
+        </p>
+        <pre>
+          entity.triggerAction(name, params, execType)
+        </pre>
+        <p>
+          Signal an RPC-like Entity Action. The action is identified with its string name, and the parameters are an array of strings. The execution type is a bit combination of the following constants: cExecTypeLocal, cExecTypeServer, cExecTypePeers, which means to either execute the action only locally, send it to the server, or to send it to all connected clients via the server.
+          The network synchronization of the action is also implemented through a signal, "actionTriggered", that the SyncManager hooks into.
+        </p>
+        <pre>
+          entity.componentById(id)
+        </pre>
+        <p>
+          Return a component from the entity by ID, or no component if not found.
+        </p>
+        <pre>
+          entity.componentByType(typeId, name)
+        </pre>
+        <p>
+        Return a component from the entity by its type, which can be a string or an integer type number. Optionally limit the query to components with the specified name.
+        </p>
+      </section>
+      <section>
+        <h3>Component</h3>
+        <pre>
+          component.createAttribute(index, typeId, name, value, changeType)
+        </pre>
+        <p>
+          Create a dynamic attribute to the component. Index starts from zero and should be allocated sequentially. Currently only the DynamicComponent supports dynamic attributes. Type id is a string name identifying the type (such as "string", "float3" or "bool"), or an integer type value that is used internally in the network protocol for optimization.
+        </p>
+        <pre>
+          component.removeAttribute(index, changeType)
+        </pre>
+        <p>
+          Remove a dynamic attribute by its zero-based index.
+        </p>
+        <pre>
+          component.attributeById(id)
+        </pre>
+        <p>
+          Returns an attribute by its string ID. The ID is a short identifier starting with a lowercase letter which is also the same as the property name of the attribute for shorthand access (ie. component.attributeName)
+        </p>
+        <pre>
+          component.attributeByName(name)
+        </pre>
+        <p>
+          Returns an attribute by its string name. This is separate from the ID and should be a longer descriptive name that is shown in eg. editor tools. Note that for dynamic attributes the ID and the name can not be separately specified, but are set to the same string value.
+        </p>
+        <pre>
+          registerCustomComponent(typeName, blueprintComponent, changeType)
+        </pre>
+        <p>
+          Registers a custom static-structured component. Its attribute structure (described by a "blueprint" component that should have been created beforehand) will be sent to the server the next time syncManager.sendChanges() is called. After that components of the new type can be created both on the client and the server.
+        </p>
+      </section>
+    </section>
+    <section>
+      <h2>Scene synchronization</h2>
+      <p>
+        To begin synchronizing scene content with the server, the Scene and SyncManager objects need to be created. On construction, the SyncManager needs to be given a WebSocketClient object that is connected to a server and a Scene, preferably empty of entities.
+      </p>
+      <pre>
+        var syncManager = new SyncManager(webSocketClient, scene);
+      </pre>
+      <p>
+        After this, the SyncManager automatically receives scene modification messages from the server and applies the changes to the Scene. To send pending changes made on the client side back to the server, the following function on the SyncManager needs to be called:
+      </p>
+      <pre>
+        syncManager.sendChanges()
+      </pre>
+    </section>
+    <section>
+      <h2>Binary protocol description</h2>
+      <p>
+        The binary messages sent between the client and server are described in detail in following document: <a href="http://github.com/realXtend/tundra/wiki/Tundra-protocol">Tundra protocol</a>
+      </p>
+      <p>
+        In a WebSocket implementation, each message is sent as one binary WebSocket frame, with the message ID encoded as an unsigned little-endian 16-bit value in the beginning.
+      </p>
+    </section>
+    <section>
+      <h2>Model of operation in pseudocode</h2>
+      <p>
+        Implementing a synchronization client is easier than a server, as it does not need to handle several connections. A client needs only to listen to the binary protocol messages as they arrive from the server, and perform them on its local scene. It also needs to listen to the change signals from the local scene, and send those that have the change type Replicated back to the server.
+      </p>
+      <p>
+        The server, on the other hand, should for efficiency operate on network "ticks" or "frames" that happen for example 20 or 30 times per second. It collects all the scene changes up to the next tick, then processes them in a batched manner. If for example the position in an entity's Transform component changes several times before the next tick, only the latest data should be sent to conserve bandwidth.
+      </p>
+      <p>
+        The server needs to maintain a structure, called here the SyncState, for each client connections that contains the list of "dirty" (contains changes that need to be sent) entities, components and attributes. When it is time to perform the next network tick, the default (naive) operation mode is to go through this structure for all client connections, and send all pending changes. More intelligent per-client operations such as interest management (throttling the update rate or excluding updates completely for far away entities) or overall bandwidth throttling can be performed. In pseudocode, the algorithm for going through the SyncState of a client is the following:
+      </p>
+      <pre>
+        Go through any newly registered component types. Send them to the client
+        Go through all dirty entities in the SyncState
+          If entity was removed, send RemoveEntity message
+          If entity is new for the client, send CreateEntity message with full component and attribute data
+          Otherwise go through its dirty components
+           If component was removed, collect it into a RemoveComponents message
+           If component is new for the client, collect it into a CreateComponents message with full attribute data
+           Otherwise go through its dirty attributes
+            If attribute is dynamic and was removed, collect it into a RemoveAttributes message
+            If attribute is dynamic and is new for the client, collect it into a CreateAttributes message
+            Otherwise (the attribute is modified) collect it into an EditAttributes message
+          Send RemoveComponents, CreateComponents, RemoveAttributes, CreateAttributes, EditAttributes messages that have data in them
+          Clear the dirty status for the entity and all its components & attributes
+      </pre>
+    </section>
+  </body>
+</html>

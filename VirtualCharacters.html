@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Virtual Characters API</title>
+    <meta charset='utf-8'>
+    <script src='https://www.w3.org/Tools/respec/respec-w3c-common'
+            async class='remove'></script>
+    <script class='remove'>
+      var respecConfig = {
+          specStatus: "unofficial",
+          publishDate:  "2015-09-02",
+          shortName:  "virtual-characters",
+          editors: [
+                {   name:       "Lasse &Ouml;&ouml;rni",
+                    company:    "LudoCraft",
+                    companyURL: "http://www.ludocraft.com/" }
+          ]
+      };
+    </script>
+  </head>
+  <body>
+    <section id='abstract'>
+      <p>
+        This document describes the Virtual Characters GE API
+      </p>
+    </section>
+
+    <section>
+      <h2>Introduction</h2>
+      <p>
+        The Virtual Characters library is interacted with through JavaScript objects, and more specifically components which are created to entities in the scene. The base scene model is shared with the 3D-UI and Synchronization GE's.
+      </p>
+      <p>
+        The displaying and animation of virtual characters is implemented by the co-operation of three components: <b>Placeable</b>, <b>Mesh</b> and <b>AnimationController</b>. The Placeable holds the transform (position, rotation and scale) of the character. The Mesh component holds information of the mesh and material assets used by the character, while the AnimationController controls the playback and blending of animations.
+      </p>
+      <p>
+        The automatic instantiation of a virtual character into a scene according to a description file is realized through a fourth component: <b>Avatar</b>.
+      </p>
+    </section>
+    <section>
+      <h2>Character instantiation</h2>
+      <p>
+        The only Attribute of the Avatar component is the reference ("appearanceRef") to the character description file (JSON format) it should use. Once the Avatar component is added to an entity, and the description file has been loaded successfully, the Avatar component will automatically create the necessary mesh component(s) into its entity, and into child entities if there are multiple parts.
+      <p>
+      <p>
+        An example:
+      </p>
+      <pre>
+        avatar.appearanceRef = "MyDescriptionFile.json";
+      </pre>
+      <p>
+        Alternatively, it is perfectly valid to not use the Avatar component, but to manually create the Mesh, Placeable & AnimationController components as necessary.
+      </p>
+    </section>
+    <section>
+      <h2>Character description file</h2>
+      <p>
+        The following shows through an example the structure of the character description file. The character in question has a main (top-level) skinned mesh on the top level and one attachment "part": a hat mesh attached to the character's head bone. The main mesh, as well as the parts can be individually transformed (position, rotate, scale). The rotations are described as Euler angles in degrees around the X, Y and Z axes. It is also valid to have no top-level mesh. Additional assets for materials (per submesh) and animations can be  optionally specified. In this example the assets refer to Collada .dae files.
+      </p>
+      <pre>
+        {
+            "name"      : "Jack",
+            "geometry"  : "Jack.dae",
+            "transform" :
+            {
+                "pos": [0, 0, 0],
+                "rot": [0, 0, 0],
+                "scale": [1, 1, 1]
+            },
+            "materials" :
+            [
+                "JackBody.material",
+                "JackHead.material"
+            ]
+            "parts" :
+            [
+                {
+                    "name"      : "Hat",
+                    "geometry"  : "Hat.dae",
+                     "transform" :
+                    {
+                        "pos": [0, 0, 0],
+                        "rot": [0, 0, 0],
+                        "scale": [1, 1, 1],
+                        "parentBone": "Bip01_Head"
+                    },
+                }
+            ],
+            "animations" :
+            [
+                {
+                    "name" : "Walk",
+                    "src"  : "Jack@walk.dae"
+                },
+                {
+                    "name" : "Run",
+                    "src"  : "Jack@run.dae"
+                }
+            ]
+        }
+      </pre>
+    </section>
+    <section>
+      <h2>Animation control</h2>
+      <p>
+        The AnimationController component contains the following functions for controlling animation playback. Animations are referred to with their string names. The playing animations will be automatically updated in conjunction with rendering each frame.
+      </p>
+      <pre>
+        animationController.play(name, fadeInTime, crossFade, looped)
+      </pre>
+      <p>
+        Start playback of an animation. fadeInTime specifies a time in seconds during which to smoothly blend the animation from zero blending weight to full weight. crossFade is a boolean which will cause other animations to be faded out as the playback of the new animation is started. looped is a boolean to indicate whether the animation should loop, or only play once.
+      </p>
+      <pre>
+        animationController.playLooped(name, fadeInTime, crossFade)
+      </pre>
+      <p>
+        Same as above, but the animation will always be looped.
+      </p>
+      <pre>
+        animationController.stop(name, fadeOutTime)
+      </pre>
+      <p>
+        Stop playback of an animation. fadeOutTime is the fade-out period in seconds, during which the blending weight is smoothly reduced to zero.
+      </p>
+      <pre>
+        animationController.stopAll()
+      </pre>
+      <p>
+        Stop playback of all animation of the character.
+      </p>
+      <pre>
+        animationController.setAnimWeight(name, weight)
+      </pre>
+      <p>
+        Set the blending weight of an animation between 0 (none) and 1 (full).
+      </p>
+      <pre>
+        animationController.setAnimSpeed(name, speed)
+      </pre>
+      <p>
+        Set the playback speed of an animation, where 1 is the original speed forward, 2 would be twice as fast, and -1 would be reverse with original speed.
+      <p>
+    </section>
+  </body>
+</html>
